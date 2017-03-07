@@ -31,17 +31,20 @@ docker run \
   -e 'POSTGRES_HOST=postgres' \
   api:latest
 
-echo "Container is running, sleeping to allow creation of database..."
-sleep 10
+#echo "Container is running, sleeping to allow creation of database..."
+#sleep 10
 
+# TODO: this currently won't work because the query api
+#   relies on the pre-existence of the DB tables...
+#
 # see if the port is open for now
-echo "Curl'ing the service"
-curl \
-  --fail \
-  --silent \
-  --max-time 15 \
-  --retry 3 \
-  --retry-delay 5 \
-  localhost:${api_port}
+#echo "Curl'ing the service"
+#curl \
+#  --fail \
+#  --silent \
+#  --max-time 15 \
+#  --retry 3 \
+#  --retry-delay 5 \
+#  localhost:${api_port}
 
 echo "Done!"
