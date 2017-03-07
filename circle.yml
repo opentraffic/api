@@ -11,8 +11,8 @@ dependencies:
     - docker build --rm=false -t api:latest .
 
 test:
-  override:
-    - ./tests/circle.sh
+  #  override:
+  #  - ./tests/circle.sh
 
 deployment:
   prod:
