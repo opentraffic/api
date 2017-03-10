@@ -537,7 +537,7 @@ class QueryHandler(BaseHTTPRequestHandler):
         ids = [ long(i) for i in list_of_ids[0].split(',')]
 
       if boundingbox is None and ids is None:
-        return 400, "Please provide a bounding box and/or array of IDs."
+        return 400, "Please provide a bounding box and/or array of segment ids."
 
       if boundingbox:
         bbox = [ float(i) for i in boundingbox[0].split(',')]
