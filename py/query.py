@@ -493,7 +493,7 @@ class QueryHandler(BaseHTTPRequestHandler):
     try:   
       # get the kvs
       boundingbox = params['boundingbox'] if 'boundingbox' in params else None
-      ids = s_date_time = e_date_time = hours = dow = None
+      s_date_time = e_date_time = hours = dow = None
       bbox = minx = miny = maxx = maxy = None
       list_of_ids = params['segment_ids'] if 'segment_ids' in params else None
       list_of_dow = params['dow'] if 'dow' in params else None
@@ -504,8 +504,10 @@ class QueryHandler(BaseHTTPRequestHandler):
       include_geometry = params.get('include_geometry', None)
       cursor = thread_local.sql_conn.cursor()
       features_index = {}
+      ids = []
       osmlr_ids = set()
       feature_collection = {'features':[]}
+      feature_index = 0
 
       #include observation counts? this will be for authorized users.
       try:
@@ -536,55 +538,69 @@ class QueryHandler(BaseHTTPRequestHandler):
       if list_of_ids:
         ids = [ long(i) for i in list_of_ids[0].split(',')]
 
-      if boundingbox is None and ids is None:
+      if boundingbox is None and list_of_ids is None:
         return 400, "Please provide a bounding box and/or an array of segment ids."
 
       if boundingbox:
         bbox = [ float(i) for i in boundingbox[0].split(',')]
-        b_box = BoundingBox(bbox[0], bbox[1], bbox[2], bbox[3])
-        # we need to check the cache first i.e., make sure the tiles we are
-        # intersecting are loaded into the cache
-        for level, t_ids in tile_ids.items():
-          # only get the tiles that intersect the bounding box and have a
-          # geojson file as well.
-          tiles = tile_hierarchy.levels[level].TileList(b_box,t_ids)
-          for t in tiles:
-            self.load_into_index(t, level, os.environ['TILE_DIR'])
 
-        # cache is all set.
-        # intersect the bb
-        osmlr_ids = set(index.intersection((bbox[0], bbox[1], bbox[2], bbox[3])))
-
-        # ids were sent in.  Only grab data for those ids.
-        if ids:
-          osmlr_ids = set(ids).intersection(osmlr_ids)
-          # ids must be outside the bb...return no results.
-          if (len(osmlr_ids) == 0):
-            return 200, results
+        bounding_boxes = []
+        #check our bb and make sure it does not cross 180/-180, if it does
+        #split it into two bounding boxes.
+        # example 174.223,-37.348,-175.314,-36.4099999 will change to
+        # 174.223,-37.348,180.0,-36.4099999 and
+        # -180.0,-37.348,-175.314,-36.4099999
+        if (bbox[0] >= bbox[2]) and (bbox[2] >= -180.0):
+          bounding_boxes.append(BoundingBox(bbox[0], bbox[1], 180.0, bbox[3]))
+          bounding_boxes.append(BoundingBox(-180.0, bbox[1], bbox[2], bbox[3]))
         else:
-          ids = list(osmlr_ids)
+          bounding_boxes.append(BoundingBox(bbox[0], bbox[1], bbox[2], bbox[3]))
 
-        feature_index = 0
-        for level, t_ids in tile_ids.items():
-          # only get the tiles that intersect the bounding box and have a
-          # geojson file as well.
-          tiles = tile_hierarchy.levels[level].TileList(b_box,t_ids)
-          for t in tiles:
-            file_name = tile_hierarchy.levels[level].GetFilename(t, level, os.environ['TILE_DIR'])
-            with open(file_name) as f:
-              geojson = json.load(f)
+        while (len(bounding_boxes) != 0):
+          b_box = bounding_boxes.pop(0)
 
-            for feature in geojson['features']:
-              osmlr_id = long(feature['properties']['osmlr_id'])
-              if osmlr_id in osmlr_ids:
-                feature_collection['features'].append(feature)
-                features_index[osmlr_id] = feature_index
-                feature_index += 1
+          # we need to check the cache first i.e., make sure the tiles we are
+          # intersecting are loaded into the cache
+          for level, t_ids in tile_ids.items():
+            # only get the tiles that intersect the bounding box and have a
+            # geojson file as well.
+            tiles = tile_hierarchy.levels[level].TileList(b_box,t_ids)
+            for t in tiles:
+              self.load_into_index(t, level, os.environ['TILE_DIR'])
+
+          # cache is all set.
+          # intersect the bb
+          osmlr_ids = set(index.intersection((b_box.minx, b_box.miny, b_box.maxx, b_box.maxy)))
+
+          # ids were sent in.  Only grab data for those ids.
+          if list_of_ids:
+            osmlr_ids = set(ids).intersection(osmlr_ids)
+          else:
+            # have to do this because we could have 2 bbs
+            ids = list(set(ids).union(osmlr_ids))
+
+          for level, t_ids in tile_ids.items():
+            # only get the tiles that intersect the bounding box and have a
+            # geojson file as well.
+            tiles = tile_hierarchy.levels[level].TileList(b_box,t_ids)
+            for t in tiles:
+              file_name = tile_hierarchy.levels[level].GetFilename(t, level, os.environ['TILE_DIR'])
+              with open(file_name) as f:
+                geojson = json.load(f)
+
+              for feature in geojson['features']:
+                osmlr_id = long(feature['properties']['osmlr_id'])
+                if osmlr_id in osmlr_ids:
+                  feature_collection['features'].append(feature)
+                  features_index[osmlr_id] = feature_index
+                  feature_index += 1
+        # ids must be outside the bb...return no results.
+        if list_of_ids and not bool(features_index):
+          return 200, results
       elif ids and include_geometry == True:
         # ids only no BB.
         # need to obtain the list of tiles from the segment IDs
         if include_geometry == True:
-          feature_index = 0
           for i in ids:
             graphid = BitArray(uint=i, length=64)
 
