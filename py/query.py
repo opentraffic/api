@@ -539,7 +539,7 @@ class QueryHandler(BaseHTTPRequestHandler):
       if boundingbox is None and ids is None:
         return 400, "Please provide a bounding box and/or array of IDs."
 
-      if boundingbox and include_geometry == True:
+      if boundingbox:
         bbox = [ float(i) for i in boundingbox[0].split(',')]
         b_box = BoundingBox(bbox[0], bbox[1], bbox[2], bbox[3])
         # we need to check the cache first i.e., make sure the tiles we are
