@@ -6,6 +6,8 @@ If you're running this from this directory you can start the server with the fol
 
 sample url looks like this:
 http://localhost:8004/query?segment_ids=19320,67128184
+http://localhost:8005/query?segment_ids=19320,67128184,156531727209&hours=11,12,3&dow=0&include_geometry=true
+http://localhost:8005/query?segment_ids=19320,67128184,156531727209&hours=11,12,3&dow=0&include_geometry=false
 http://localhost:8004/query?segment_ids=19320,67128184&start_date_time=2017-01-02T00:00:00&end_date_time=2017-03-07T16:00:00
 http://localhost:8004/query?segment_ids=19320,67128184&dow=0
 http://localhost:8004/query?segment_ids=19320,67128184&hours=11,12,3
@@ -39,6 +41,7 @@ from distutils.util import strtobool
 import rtree
 from shapely.geometry import shape
 from shapely.geometry import box
+from bitstring import BitArray
 
 actions = set(['query'])
 tile_hierarchy = None
@@ -161,6 +164,7 @@ class Tiles(object):
       return tile_id
     return None
 
+  # get the file name based on tile_id and level
   def GetFilename(self, tile_id, level, directory):
 
     max_length = self.Digits(self.max_tile_id)
@@ -464,6 +468,23 @@ class QueryHandler(BaseHTTPRequestHandler):
       params = urlparse.parse_qs(split.query)
       return params
 
+  # loads a tile into the rtree index if tile is not in the cache.
+  def load_into_index(self, t, level, tile_dir):
+    file_name = tile_hierarchy.levels[level].GetFilename(t, level, os.environ['TILE_DIR'])
+    # if the file has not be cached, we must load it up into the index.
+    if t not in cached_tiles:
+
+      with open(file_name) as f:
+        geojson = json.load(f)
+
+      for feature in geojson['features']:
+        geom = shape(feature['geometry'])
+        osmlr_id = long(feature['properties']['osmlr_id'])
+        index.insert(osmlr_id, geom.bounds)
+
+      # this is our set of tiles that have been loaded into the index, only load each tile once.
+      cached_tiles.add(t)
+
   #parse the request because we dont get this for free!
   def handle_request(self, post):
     #get the query data
@@ -486,12 +507,36 @@ class QueryHandler(BaseHTTPRequestHandler):
       osmlr_ids = set()
       feature_collection = {'features':[]}
 
+      #include observation counts? this will be for authorized users.
+      try:
+        if include_observation_counts:
+          include_observation_counts = bool(strtobool(str(include_observation_counts[0])))
+        else:
+          include_observation_counts = False
+      #invalid value entered.
+      except:
+        include_observation_counts = False
+
+      #include the geom?
+      try:
+        if include_geometry:
+          include_geometry = bool(strtobool(str(include_geometry[0])))
+        else:
+          include_geometry = True
+      #invalid value entered.
+      except:
+        include_geometry = True
+
+      if include_geometry == True:
+        results = {"type":"FeatureCollection",'features':[]}
+      else: results = {}
+
       #ids will come in as csv string.  we must split and cast to list
       #so that the cursor can bind the list.
       if list_of_ids:
         ids = [ long(i) for i in list_of_ids[0].split(',')]
 
-      if boundingbox:
+      if boundingbox and include_geometry == True:
         bbox = [ float(i) for i in boundingbox[0].split(',')]
         b_box = BoundingBox(bbox[0], bbox[1], bbox[2], bbox[3])
         # we need to check the cache first i.e., make sure the tiles we are
@@ -501,20 +546,7 @@ class QueryHandler(BaseHTTPRequestHandler):
           # geojson file as well.
           tiles = tile_hierarchy.levels[level].TileList(b_box,t_ids)
           for t in tiles:
-            file_name = tile_hierarchy.levels[level].GetFilename(t, level, os.environ['TILE_DIR'])
-            # if the file has not be cached, we must load it up into the index.
-            if t not in cached_tiles:
-
-              with open(file_name) as f:
-                geojson = json.load(f)
-
-              for feature in geojson['features']:
-                geom = shape(feature['geometry'])
-                osmlr_id = long(feature['properties']['osmlr_id'])
-                index.insert(osmlr_id, geom.bounds)
-
-              # this is our set of tiles that have been loaded into the index, only load each tile once.
-              cached_tiles.add(t)
+            self.load_into_index(t, level, os.environ['TILE_DIR'])
 
         # cache is all set.
         # intersect the bb
@@ -543,31 +575,33 @@ class QueryHandler(BaseHTTPRequestHandler):
                 features_index[osmlr_id] = feature_index
                 feature_index += 1
       else:
-        return 400, "Please provide a bounding box."
+        # ids only no BB.
+        # need to obtain the list of tiles from the segment IDs
+        if ids:
+          if include_geometry == True:
+            feature_index = 0
+            for i in ids:
+              graphid = BitArray(uint=i, length=64)
 
-      #include observation counts? this will be for authorized users.
-      try:
-        if include_observation_counts:
-          include_observation_counts = bool(strtobool(str(include_observation_counts[0])))
+              # last 3 bits is our level
+              level = graphid[-3:].uint
+              # these 22 bits equal our tile id
+              tileid = graphid[-25:-3].uint
+
+              self.load_into_index(tileid, level, os.environ['TILE_DIR'])
+
+              file_name = tile_hierarchy.levels[level].GetFilename(tileid, level, os.environ['TILE_DIR'])
+              with open(file_name) as f:
+                geojson = json.load(f)
+
+              for feature in geojson['features']:
+                osmlr_id = long(feature['properties']['osmlr_id'])
+                if osmlr_id in ids:
+                  feature_collection['features'].append(feature)
+                  features_index[osmlr_id] = feature_index
+                  feature_index += 1
         else:
-          include_observation_counts = False
-      #invalid value entered.
-      except:
-        include_observation_counts = False
-
-      #include the geom?
-      try:
-        if include_geometry:
-          include_geometry = bool(strtobool(str(include_geometry[0])))
-        else:
-          include_geometry = True
-      #invalid value entered.
-      except:
-        include_geometry = True
-
-      if include_geometry == True:
-        results = {"type":"FeatureCollection",'features':[]}
-      else: results = {}
+          return 400, "Please provide a bounding box or array of IDs."
 
       #hand it back -- empty results
       if not ids:
