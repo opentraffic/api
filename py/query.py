@@ -536,6 +536,9 @@ class QueryHandler(BaseHTTPRequestHandler):
       if list_of_ids:
         ids = [ long(i) for i in list_of_ids[0].split(',')]
 
+      if boundingbox is None and ids is None:
+        return 400, "Please provide a bounding box and/or array of IDs."
+
       if boundingbox and include_geometry == True:
         bbox = [ float(i) for i in boundingbox[0].split(',')]
         b_box = BoundingBox(bbox[0], bbox[1], bbox[2], bbox[3])
@@ -555,6 +558,9 @@ class QueryHandler(BaseHTTPRequestHandler):
         # ids were sent in.  Only grab data for those ids.
         if ids:
           osmlr_ids = set(ids).intersection(osmlr_ids)
+          # ids must be outside the bb...return no results.
+          if (len(osmlr_ids) == 0):
+            return 200, results
         else:
           ids = list(osmlr_ids)
 
@@ -574,34 +580,31 @@ class QueryHandler(BaseHTTPRequestHandler):
                 feature_collection['features'].append(feature)
                 features_index[osmlr_id] = feature_index
                 feature_index += 1
-      else:
+      elif ids and include_geometry == True:
         # ids only no BB.
         # need to obtain the list of tiles from the segment IDs
-        if ids:
-          if include_geometry == True:
-            feature_index = 0
-            for i in ids:
-              graphid = BitArray(uint=i, length=64)
+        if include_geometry == True:
+          feature_index = 0
+          for i in ids:
+            graphid = BitArray(uint=i, length=64)
 
-              # last 3 bits is our level
-              level = graphid[-3:].uint
-              # these 22 bits equal our tile id
-              tileid = graphid[-25:-3].uint
+            # last 3 bits is our level
+            level = graphid[-3:].uint
+            # these 22 bits equal our tile id
+            tileid = graphid[-25:-3].uint
 
-              self.load_into_index(tileid, level, os.environ['TILE_DIR'])
+            self.load_into_index(tileid, level, os.environ['TILE_DIR'])
 
-              file_name = tile_hierarchy.levels[level].GetFilename(tileid, level, os.environ['TILE_DIR'])
-              with open(file_name) as f:
-                geojson = json.load(f)
+            file_name = tile_hierarchy.levels[level].GetFilename(tileid, level, os.environ['TILE_DIR'])
+            with open(file_name) as f:
+              geojson = json.load(f)
 
-              for feature in geojson['features']:
-                osmlr_id = long(feature['properties']['osmlr_id'])
-                if osmlr_id in ids:
-                  feature_collection['features'].append(feature)
-                  features_index[osmlr_id] = feature_index
-                  feature_index += 1
-        else:
-          return 400, "Please provide a bounding box or array of IDs."
+            for feature in geojson['features']:
+              osmlr_id = long(feature['properties']['osmlr_id'])
+              if osmlr_id in ids:
+                feature_collection['features'].append(feature)
+                features_index[osmlr_id] = feature_index
+                feature_index += 1
 
       #hand it back -- empty results
       if not ids:
