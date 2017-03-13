@@ -18,6 +18,7 @@ http://localhost:8004/query?segment_ids=19320,67128184&start_date_time=2017-01-0
 http://localhost:8004/query?segment_ids=19320,67128184&hours=11,12,3&dow=0&boundingbox=120.885,14.327,121.2,14.9&include_geometry=false
 http://localhost:8004/query?segment_ids=19320,67128184&hours=11,12,3&dow=0&boundingbox=120.885,14.327,121.2,14.9&include_geometry=true
 http://localhost:8004/query?segment_ids=19320,67128184&start_date_time=2017-01-02T00:00:00&end_date_time=2017-03-07T16:00:00&hours=11,12,3,0&dow=0,1,2,3,4,5,6&include_geometry=true&boundingbox=120.885,14.327,121.2,14.9
+http://localhost:8004/query?segment_ids=19320,67128184&hours=11,12,3&dow=0&boundingbox=-74.251961,40.512764,-73.755405,40.903125
 '''
 
 import sys
@@ -333,8 +334,9 @@ class ThreadPoolMixIn(ThreadingMixIn):
 
     # id only query
     try:
-      prepare_statement = "PREPARE q_ids AS SELECT segment_id, avg(speed) as average_speed FROM " \
-	                        " segments where segment_id = ANY ($1) group by segment_id;"
+      prepare_statement = "PREPARE q_ids AS SELECT segment_id, avg(speed) as average_speed, " \
+	                        "count(segment_id) as observation_count FROM segments where " \
+                          "segment_id = ANY ($1) group by segment_id;"
       cursor.execute(prepare_statement)
     except Exception as e:
       raise Exception('Could not create prepare statement: ' + repr(e))
@@ -355,7 +357,7 @@ class ThreadPoolMixIn(ThreadingMixIn):
     # id, date, and hours query
     try:
       prepare_statement = "PREPARE q_ids_date_hours AS SELECT segment_id, avg(speed) as average_speed, " \
-                          "start_time_hour as hour FROM segments where " \
+                          "start_time_hour as hour, count(segment_id) as observation_count FROM segments where " \
                           "segment_id = ANY ($1) and " \
                           "((start_time >= $2 and start_time <= $3) and (end_time >= $2 and end_time <= $3)) and " \
                           "(start_time_hour = ANY ($4) and end_time_hour = ANY ($4)) " \
@@ -367,7 +369,7 @@ class ThreadPoolMixIn(ThreadingMixIn):
     # id, date, and dow query
     try:
       prepare_statement = "PREPARE q_ids_date_dow AS SELECT segment_id, avg(speed) as average_speed, " \
-                          "start_time_dow as dow FROM segments where " \
+                          "start_time_dow as dow, count(segment_id) as observation_count FROM segments where " \
                           "segment_id = ANY ($1) and " \
                           "((start_time >= $2 and start_time <= $3) and (end_time >= $2 and end_time <= $3)) and " \
                           "(start_time_dow = ANY ($4) and end_time_dow = ANY ($4)) " \
@@ -390,8 +392,8 @@ class ThreadPoolMixIn(ThreadingMixIn):
 
     # id and date
     try:
-      prepare_statement = "PREPARE q_ids_date AS SELECT segment_id, avg(speed) as average_speed " \
-                          "FROM segments where " \
+      prepare_statement = "PREPARE q_ids_date AS SELECT segment_id, avg(speed) as average_speed, " \
+                          "count(segment_id) as observation_count FROM segments where " \
                           "segment_id = ANY ($1) and " \
                           "((start_time >= $2 and start_time <= $3) and (end_time >= $2 and end_time <= $3)) " \
                           "group by segment_id;"
@@ -402,7 +404,7 @@ class ThreadPoolMixIn(ThreadingMixIn):
     # id and hours query
     try:
       prepare_statement = "PREPARE q_ids_hours AS SELECT segment_id, avg(speed) as average_speed, " \
-                          "start_time_hour as hour FROM segments where " \
+                          "start_time_hour as hour, count(segment_id) as observation_count FROM segments where " \
                           "segment_id = ANY ($1) and " \
                           "(start_time_hour = ANY ($2) and end_time_hour = ANY ($2)) " \
                           "group by segment_id, start_time_hour;"
@@ -413,7 +415,7 @@ class ThreadPoolMixIn(ThreadingMixIn):
     # id and dow query
     try:
       prepare_statement = "PREPARE q_ids_dow AS SELECT segment_id, avg(speed) as average_speed, " \
-                          "start_time_dow as dow FROM segments where " \
+                          "start_time_dow as dow, count(segment_id) as observation_count FROM segments where " \
                           "segment_id = ANY ($1) and " \
                           "(start_time_dow = ANY ($2) and end_time_dow = ANY ($2)) " \
                           "group by segment_id, start_time_dow;"
@@ -647,6 +649,10 @@ class QueryHandler(BaseHTTPRequestHandler):
       # id only query
       if all(parameters is None for parameters in (s_date_time, e_date_time, hours, dow)):
         cursor.execute("execute q_ids (%s)",(ids,))
+        if include_observation_counts == True:
+          columns = ['segment_id', 'average_speed', 'observation_count']
+        else:
+         columns = ['segment_id', 'average_speed']
 
       # id, date, hours, and dow query
       elif all(parameters is not None for parameters in (s_date_time, e_date_time, hours, dow)):
@@ -661,13 +667,19 @@ class QueryHandler(BaseHTTPRequestHandler):
       elif all(parameters is not None for parameters in (s_date_time, e_date_time, hours)):
         cursor.execute("execute q_ids_date_hours (%s, %s, %s, %s)",
                       ((ids,),s_date_time,e_date_time,(hours,)))
-        columns = ['segment_id', 'average_speed', 'hour']
+        if include_observation_counts == True:
+          columns = ['segment_id', 'average_speed', 'hour', 'observation_count']
+        else:
+          columns = ['segment_id', 'average_speed', 'hour']
 
       # id, date, and dow query
       elif all(parameters is not None for parameters in (s_date_time, e_date_time, dow)):
         cursor.execute("execute q_ids_date_dow (%s, %s, %s, %s)",
                       ((ids,),s_date_time,e_date_time,(dow,)))
-        columns = ['segment_id', 'average_speed', 'dow']
+        if include_observation_counts == True:
+          columns = ['segment_id', 'average_speed', 'dow', 'observation_count']
+        else:
+          columns = ['segment_id', 'average_speed', 'dow']
 
       # id, hours, and dow query
       elif all(parameters is not None for parameters in (hours, dow)):
@@ -682,16 +694,26 @@ class QueryHandler(BaseHTTPRequestHandler):
       elif all(parameters is not None for parameters in (s_date_time, e_date_time)):
         cursor.execute("execute q_ids_date (%s, %s, %s)",
                       ((ids,),s_date_time,e_date_time))
+        if include_observation_counts == True:
+          columns = ['segment_id', 'average_speed', 'observation_count']
+        else:
+         columns = ['segment_id', 'average_speed']
 
       # id and hours query
       elif hours is not None:
         cursor.execute("execute q_ids_hours (%s, %s)",((ids,),(hours,)))
-        columns = ['segment_id', 'average_speed', 'hour']
+        if include_observation_counts == True:
+          columns = ['segment_id', 'average_speed', 'hour', 'observation_count']
+        else:
+          columns = ['segment_id', 'average_speed', 'hour']
 
       # id and dow query
       elif dow is not None:
         cursor.execute("execute q_ids_dow (%s, %s)",((ids,),(dow,)))
-        columns = ['segment_id', 'average_speed', 'dow']
+        if include_observation_counts == True:
+          columns = ['segment_id', 'average_speed', 'dow', 'observation_count']
+        else:
+          columns = ['segment_id', 'average_speed', 'dow']
 
       rows = cursor.fetchall()
       current_id = feature = None
