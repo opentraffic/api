@@ -15,7 +15,7 @@ ENV POSTGRES_PORT ${POSTGRES_PORT:-"5432"}
 ENV TILE_DIR ${TILE_DIR:-"/data/tiles"}
 
 # install dependencies
-RUN apt-get update && apt-get install -y python python-psycopg2
+RUN apt-get update && apt-get install -y python python-psycopg2 python-rtree
 
 # install code
 ADD ./py /api
