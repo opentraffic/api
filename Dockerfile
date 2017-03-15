@@ -18,7 +18,8 @@ ENV TILE_DIR ${TILE_DIR:-"/data/tiles"}
 RUN apt-get update && apt-get install -y \
       python \
       python-psycopg2 \
-      python-rtree
+      python-rtree \
+      python-shapely
 
 # install code
 ADD ./py /api
