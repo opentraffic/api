@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y \
       python-rtree \
       python-shapely
 
-RUN pip3 install bitstring;
+RUN pip install bitstring
 
 # install code
 ADD ./py /api
