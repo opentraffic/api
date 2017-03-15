@@ -14,8 +14,12 @@ ENV POSTGRES_HOST ${POSTGRES_HOST:-"postgres"}
 ENV POSTGRES_PORT ${POSTGRES_PORT:-"5432"}
 
 # install dependencies
-RUN apt-get update && apt-get install -y python python-psycopg2 python-rtree
-
+RUN apt-get update && apt-get install -y \
+      python \
+      python-psycopg2 \
+      python-rtree \
+      python-shapely
+      
 # install code
 ADD ./py /api
 
