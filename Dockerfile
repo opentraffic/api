@@ -17,6 +17,7 @@ ENV TILE_DIR ${TILE_DIR:-"/data/tiles"}
 # install dependencies
 RUN apt-get update && apt-get install -y \
       python \
+      python-pip \
       python-psycopg2 \
       python-rtree \
       python-shapely
