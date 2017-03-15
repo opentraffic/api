@@ -16,11 +16,13 @@ ENV POSTGRES_PORT ${POSTGRES_PORT:-"5432"}
 # install dependencies
 RUN apt-get update && apt-get install -y \
       python \
+      python-pip \
       python-psycopg2 \
       python-rtree \
-      python-shapely \
-      python-bitstring
-      
+      python-shapely
+
+RUN pip install bitstring
+
 # install code
 ADD ./py /api
 
