@@ -19,8 +19,9 @@ RUN apt-get update && apt-get install -y \
       python \
       python-psycopg2 \
       python-rtree \
-      python-shapely \
-      python-bitstring
+      python-shapely
+
+RUN pip3 install bitstring;
 
 # install code
 ADD ./py /api
