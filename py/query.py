@@ -423,6 +423,7 @@ class ThreadPoolMixIn(ThreadingMixIn):
     except Exception as e:
       raise Exception('Could not create prepare statement: ' + repr(e))
 
+    cursor.close()
     sys.stdout.write("Created prepare statements.\n")
     sys.stdout.flush()
 
