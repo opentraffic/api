@@ -476,7 +476,7 @@ class QueryHandler(BaseHTTPRequestHandler):
     if tile_hierarchy.levels.has_key(level):
       file_name = tile_hierarchy.levels[level].GetFilename(t, level, os.environ['TILE_DIR'])
 
-      if (os.path.isfile(file_name)):
+      if (file_name is not None and os.path.isfile(file_name)):
         # if the file has not be cached, we must load it up into the index.
         if t not in cached_tiles:
 
@@ -508,6 +508,7 @@ class QueryHandler(BaseHTTPRequestHandler):
       end_date_time = params.get('end_date_time', None)
       include_observation_counts = params.get('include_observation_counts', None)
       include_geometry = params.get('include_geometry', None)
+      cursor = thread_local.sql_conn.cursor()
       features_index = {}
       ids = []
       osmlr_ids = set()
@@ -617,7 +618,7 @@ class QueryHandler(BaseHTTPRequestHandler):
             self.load_into_index(tileid, level, os.environ['TILE_DIR'])
             if tile_hierarchy.levels.has_key(level):
               file_name = tile_hierarchy.levels[level].GetFilename(tileid, level, os.environ['TILE_DIR'])
-              if (os.path.isfile(file_name)):
+              if (file_name is not None and os.path.isfile(file_name)):
                 with open(file_name) as f:
                   geojson = json.load(f)
 
@@ -650,7 +651,6 @@ class QueryHandler(BaseHTTPRequestHandler):
         hours = [ int(i) for i in list_of_hours[0].split(',')]
 
       # id only query
-      cursor = thread_local.sql_conn.cursor()
       if all(parameters is None for parameters in (s_date_time, e_date_time, hours, dow)):
         cursor.execute("execute q_ids (%s)",(ids,))
         if include_observation_counts == True:
