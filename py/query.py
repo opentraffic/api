@@ -472,20 +472,24 @@ class QueryHandler(BaseHTTPRequestHandler):
 
   # loads a tile into the rtree index if tile is not in the cache.
   def load_into_index(self, t, level, tile_dir):
-    file_name = tile_hierarchy.levels[level].GetFilename(t, level, os.environ['TILE_DIR'])
-    # if the file has not be cached, we must load it up into the index.
-    if t not in cached_tiles:
 
-      with open(file_name) as f:
-        geojson = json.load(f)
+    if tile_hierarchy.levels.has_key(level):
+      file_name = tile_hierarchy.levels[level].GetFilename(t, level, os.environ['TILE_DIR'])
 
-      for feature in geojson['features']:
-        geom = shape(feature['geometry'])
-        osmlr_id = long(feature['properties']['osmlr_id'])
-        index.insert(osmlr_id, geom.bounds)
+      if (os.path.isfile(file_name)):
+        # if the file has not be cached, we must load it up into the index.
+        if t not in cached_tiles:
 
-      # this is our set of tiles that have been loaded into the index, only load each tile once.
-      cached_tiles.add(t)
+          with open(file_name) as f:
+            geojson = json.load(f)
+
+          for feature in geojson['features']:
+            geom = shape(feature['geometry'])
+            osmlr_id = long(feature['properties']['osmlr_id'])
+            index.insert(osmlr_id, geom.bounds)
+
+          # this is our set of tiles that have been loaded into the index, only load each tile once.
+          cached_tiles.add(t)
 
   #parse the request because we dont get this for free!
   def handle_request(self, post):
@@ -509,7 +513,7 @@ class QueryHandler(BaseHTTPRequestHandler):
       ids = []
       osmlr_ids = set()
       feature_collection = {'features':[]}
-      feature_index = 0
+      feature_index = rows_count = 0
 
       #include observation counts? this will be for authorized users.
       try:
@@ -612,17 +616,18 @@ class QueryHandler(BaseHTTPRequestHandler):
             tileid = graphid[-25:-3].uint
 
             self.load_into_index(tileid, level, os.environ['TILE_DIR'])
+            if tile_hierarchy.levels.has_key(level):
+              file_name = tile_hierarchy.levels[level].GetFilename(tileid, level, os.environ['TILE_DIR'])
+              if (os.path.isfile(file_name)):
+                with open(file_name) as f:
+                  geojson = json.load(f)
 
-            file_name = tile_hierarchy.levels[level].GetFilename(tileid, level, os.environ['TILE_DIR'])
-            with open(file_name) as f:
-              geojson = json.load(f)
-
-            for feature in geojson['features']:
-              osmlr_id = long(feature['properties']['osmlr_id'])
-              if osmlr_id in ids:
-                feature_collection['features'].append(feature)
-                features_index[osmlr_id] = feature_index
-                feature_index += 1
+                for feature in geojson['features']:
+                  osmlr_id = long(feature['properties']['osmlr_id'])
+                  if osmlr_id in ids:
+                    feature_collection['features'].append(feature)
+                    features_index[osmlr_id] = feature_index
+                    feature_index += 1
 
       #hand it back -- empty results
       if not ids:
@@ -645,10 +650,9 @@ class QueryHandler(BaseHTTPRequestHandler):
       if list_of_hours:
         hours = [ int(i) for i in list_of_hours[0].split(',')]
 
-      columns = ['segment_id', 'average_speed']
       # id only query
       if all(parameters is None for parameters in (s_date_time, e_date_time, hours, dow)):
-        cursor.execute("execute q_ids (%s)",(ids,))
+        rows_count = cursor.execute("execute q_ids (%s)",(ids,))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'observation_count']
         else:
@@ -656,7 +660,7 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id, date, hours, and dow query
       elif all(parameters is not None for parameters in (s_date_time, e_date_time, hours, dow)):
-        cursor.execute("execute q_ids_date_hours_dow (%s, %s, %s, %s, %s)",
+        rows_count = cursor.execute("execute q_ids_date_hours_dow (%s, %s, %s, %s, %s)",
                       ((ids,),s_date_time,e_date_time,(hours,),(dow,)))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'dow', 'hour', 'observation_count']
@@ -665,7 +669,7 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id, date, and hours query
       elif all(parameters is not None for parameters in (s_date_time, e_date_time, hours)):
-        cursor.execute("execute q_ids_date_hours (%s, %s, %s, %s)",
+        rows_count = cursor.execute("execute q_ids_date_hours (%s, %s, %s, %s)",
                       ((ids,),s_date_time,e_date_time,(hours,)))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'hour', 'observation_count']
@@ -674,7 +678,7 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id, date, and dow query
       elif all(parameters is not None for parameters in (s_date_time, e_date_time, dow)):
-        cursor.execute("execute q_ids_date_dow (%s, %s, %s, %s)",
+        rows_count = cursor.execute("execute q_ids_date_dow (%s, %s, %s, %s)",
                       ((ids,),s_date_time,e_date_time,(dow,)))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'dow', 'observation_count']
@@ -683,7 +687,7 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id, hours, and dow query
       elif all(parameters is not None for parameters in (hours, dow)):
-        cursor.execute("execute q_ids_hours_dow (%s, %s, %s)",
+        rows_count = cursor.execute("execute q_ids_hours_dow (%s, %s, %s)",
                       ((ids,),(hours,),(dow,)))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'dow', 'hour', 'observation_count']
@@ -692,7 +696,7 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id and date query
       elif all(parameters is not None for parameters in (s_date_time, e_date_time)):
-        cursor.execute("execute q_ids_date (%s, %s, %s)",
+        rows_count = cursor.execute("execute q_ids_date (%s, %s, %s)",
                       ((ids,),s_date_time,e_date_time))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'observation_count']
@@ -701,7 +705,7 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id and hours query
       elif hours is not None:
-        cursor.execute("execute q_ids_hours (%s, %s)",((ids,),(hours,)))
+        rows_count = cursor.execute("execute q_ids_hours (%s, %s)",((ids,),(hours,)))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'hour', 'observation_count']
         else:
@@ -709,48 +713,49 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id and dow query
       elif dow is not None:
-        cursor.execute("execute q_ids_dow (%s, %s)",((ids,),(dow,)))
+        rows_count = cursor.execute("execute q_ids_dow (%s, %s)",((ids,),(dow,)))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'dow', 'observation_count']
         else:
           columns = ['segment_id', 'average_speed', 'dow']
 
-      rows = cursor.fetchall()
-      current_id = feature = None
-      # get the db results
-      # add the speeds to the original feature.
-      # can be multiple speeds based on query.
-      if include_geometry == True:
-        for row in rows:
-          speed = dict(zip(columns, row))
-          if current_id != speed['segment_id']:
-            if current_id != None:
-              results['features'].append(feature)
-            current_id = speed['segment_id']
-            feature_index = features_index[current_id]
-            feature = feature_collection['features'][feature_index]
-            feature['properties']['speeds'] = []
+      if rows_count > 0:
+        rows = cursor.fetchall()
+        current_id = feature = None
+        # get the db results
+        # add the speeds to the original feature.
+        # can be multiple speeds based on query.
+        if include_geometry == True:
+          for row in rows:
+            speed = dict(zip(columns, row))
+            if current_id != speed['segment_id']:
+              if current_id != None:
+                results['features'].append(feature)
+              current_id = speed['segment_id']
+              feature_index = features_index[current_id]
+              feature = feature_collection['features'][feature_index]
+              feature['properties']['speeds'] = []
 
-          speed.pop('segment_id')
-          feature['properties']['speeds'].append(speed)
+            speed.pop('segment_id')
+            feature['properties']['speeds'].append(speed)
 
-        if current_id != None:
-          results['features'].append(feature)
-      # no geom requested.
-      else:
-        speeds = None
-        for row in rows:
-          speed = dict(zip(columns, row))
-          if current_id != speed['segment_id']:
-            if current_id != None:
-              results[current_id] = speeds
-            speeds = {'speeds':[]}
-            current_id = speed['segment_id']
+          if current_id is not None:
+            results['features'].append(feature)
+        # no geom requested.
+        else:
+          speeds = None
+          for row in rows:
+            speed = dict(zip(columns, row))
+            if current_id != speed['segment_id']:
+              if current_id != None:
+                results[current_id] = speeds
+              speeds = {'speeds':[]}
+              current_id = speed['segment_id']
 
-          speed.pop('segment_id')
-          speeds['speeds'].append(speed)
-        if current_id != None:
-          results[current_id] = speeds
+            speed.pop('segment_id')
+            speeds['speeds'].append(speed)
+          if current_id is not None:
+            results[current_id] = speeds
 
     except Exception as e:
       return 400, str(e)
