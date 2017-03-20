@@ -508,12 +508,11 @@ class QueryHandler(BaseHTTPRequestHandler):
       end_date_time = params.get('end_date_time', None)
       include_observation_counts = params.get('include_observation_counts', None)
       include_geometry = params.get('include_geometry', None)
-      cursor = thread_local.sql_conn.cursor()
       features_index = {}
       ids = []
       osmlr_ids = set()
       feature_collection = {'features':[]}
-      feature_index = rows_count = 0
+      feature_index = 0
 
       #include observation counts? this will be for authorized users.
       try:
@@ -651,8 +650,9 @@ class QueryHandler(BaseHTTPRequestHandler):
         hours = [ int(i) for i in list_of_hours[0].split(',')]
 
       # id only query
+      cursor = thread_local.sql_conn.cursor()
       if all(parameters is None for parameters in (s_date_time, e_date_time, hours, dow)):
-        rows_count = cursor.execute("execute q_ids (%s)",(ids,))
+        cursor.execute("execute q_ids (%s)",(ids,))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'observation_count']
         else:
@@ -660,7 +660,7 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id, date, hours, and dow query
       elif all(parameters is not None for parameters in (s_date_time, e_date_time, hours, dow)):
-        rows_count = cursor.execute("execute q_ids_date_hours_dow (%s, %s, %s, %s, %s)",
+        cursor.execute("execute q_ids_date_hours_dow (%s, %s, %s, %s, %s)",
                       ((ids,),s_date_time,e_date_time,(hours,),(dow,)))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'dow', 'hour', 'observation_count']
@@ -669,7 +669,7 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id, date, and hours query
       elif all(parameters is not None for parameters in (s_date_time, e_date_time, hours)):
-        rows_count = cursor.execute("execute q_ids_date_hours (%s, %s, %s, %s)",
+        cursor.execute("execute q_ids_date_hours (%s, %s, %s, %s)",
                       ((ids,),s_date_time,e_date_time,(hours,)))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'hour', 'observation_count']
@@ -678,7 +678,7 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id, date, and dow query
       elif all(parameters is not None for parameters in (s_date_time, e_date_time, dow)):
-        rows_count = cursor.execute("execute q_ids_date_dow (%s, %s, %s, %s)",
+        cursor.execute("execute q_ids_date_dow (%s, %s, %s, %s)",
                       ((ids,),s_date_time,e_date_time,(dow,)))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'dow', 'observation_count']
@@ -687,7 +687,7 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id, hours, and dow query
       elif all(parameters is not None for parameters in (hours, dow)):
-        rows_count = cursor.execute("execute q_ids_hours_dow (%s, %s, %s)",
+        cursor.execute("execute q_ids_hours_dow (%s, %s, %s)",
                       ((ids,),(hours,),(dow,)))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'dow', 'hour', 'observation_count']
@@ -696,7 +696,7 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id and date query
       elif all(parameters is not None for parameters in (s_date_time, e_date_time)):
-        rows_count = cursor.execute("execute q_ids_date (%s, %s, %s)",
+        cursor.execute("execute q_ids_date (%s, %s, %s)",
                       ((ids,),s_date_time,e_date_time))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'observation_count']
@@ -705,7 +705,7 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id and hours query
       elif hours is not None:
-        rows_count = cursor.execute("execute q_ids_hours (%s, %s)",((ids,),(hours,)))
+        cursor.execute("execute q_ids_hours (%s, %s)",((ids,),(hours,)))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'hour', 'observation_count']
         else:
@@ -713,54 +713,55 @@ class QueryHandler(BaseHTTPRequestHandler):
 
       # id and dow query
       elif dow is not None:
-        rows_count = cursor.execute("execute q_ids_dow (%s, %s)",((ids,),(dow,)))
+        cursor.execute("execute q_ids_dow (%s, %s)",((ids,),(dow,)))
         if include_observation_counts == True:
           columns = ['segment_id', 'average_speed', 'dow', 'observation_count']
         else:
           columns = ['segment_id', 'average_speed', 'dow']
 
-      if rows_count > 0:
-        rows = cursor.fetchall()
-        current_id = feature = None
-        # get the db results
-        # add the speeds to the original feature.
-        # can be multiple speeds based on query.
-        if include_geometry == True:
-          for row in rows:
-            speed = dict(zip(columns, row))
-            if current_id != speed['segment_id']:
-              if current_id != None:
-                results['features'].append(feature)
-              current_id = speed['segment_id']
-              feature_index = features_index[current_id]
-              feature = feature_collection['features'][feature_index]
-              feature['properties']['speeds'] = []
+      rows = cursor.fetchall()
+      current_id = feature = None
+      # get the db results
+      # add the speeds to the original feature.
+      # can be multiple speeds based on query.
+      if include_geometry == True:
+        for row in rows:
+          speed = dict(zip(columns, row))
+          if current_id != speed['segment_id']:
+            if current_id != None:
+              results['features'].append(feature)
+            current_id = speed['segment_id']
+            feature_index = features_index[current_id]
+            feature = feature_collection['features'][feature_index]
+            feature['properties']['speeds'] = []
 
-            speed.pop('segment_id')
-            feature['properties']['speeds'].append(speed)
+          speed.pop('segment_id')
+          feature['properties']['speeds'].append(speed)
 
-          if current_id is not None:
-            results['features'].append(feature)
-        # no geom requested.
-        else:
-          speeds = None
-          for row in rows:
-            speed = dict(zip(columns, row))
-            if current_id != speed['segment_id']:
-              if current_id != None:
-                results[current_id] = speeds
-              speeds = {'speeds':[]}
-              current_id = speed['segment_id']
+        if current_id is not None:
+          results['features'].append(feature)
+      # no geom requested.
+      else:
+        speeds = None
+        for row in rows:
+          speed = dict(zip(columns, row))
+          if current_id != speed['segment_id']:
+            if current_id != None:
+              results[current_id] = speeds
+            speeds = {'speeds':[]}
+            current_id = speed['segment_id']
 
-            speed.pop('segment_id')
-            speeds['speeds'].append(speed)
-          if current_id is not None:
-            results[current_id] = speeds
+          speed.pop('segment_id')
+          speeds['speeds'].append(speed)
+        if current_id is not None:
+          results[current_id] = speeds
 
     except Exception as e:
+      cursor.close()
       return 400, str(e)
 
     #hand it back
+    cursor.close()
     return 200, results
 
   #send an answer
