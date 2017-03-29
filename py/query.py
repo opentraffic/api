@@ -497,6 +497,10 @@ class QueryHandler(BaseHTTPRequestHandler):
     #get the query data
     params = self.parse_url(post)
 
+    #reject some queries
+    if os.environ.get('SECRET_KEY') != params.get('secret_key', [None])[0]:
+      return 401, 'Unauthorized'
+
     try:   
       # get the kvs
       boundingbox = params['boundingbox'] if 'boundingbox' in params else None
